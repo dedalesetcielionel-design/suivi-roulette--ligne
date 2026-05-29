@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Suivi des Carrés Indépendants</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:#f0ece4;font-family:'Segoe UI',Arial,sans-serif;padding:10px;color:#222;}
+h1{text-align:center;font-size:16px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:15px;color:#1a1a1a;}
+
+/* Alignement des tableaux côte à côte sur grand écran, empilés sur mobile */
+#parties-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+  justify-content: center;
+}
+
+/* Style des blocs de jeu individuels et indépendants */
+.partie-bloc {
+  background: white;
+  border: 1.5px solid #bbb;
+  border-radius: 10px;
+  padding: 12px 10px 14px;
+  width: 310px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.partie-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.partie-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1a1a1a;
+}
+.partie-numero {
+  border: 1.5px solid #bbb;
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 13px;
+  width: 120px;
+  background: #fafafa;
+  color: #222;
+}
+
+/* Bandeau historique propre à chaque tableau */
+.bandeau-historique-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #0f172a;
+  padding: 6px 10px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.hist-label {
+  font-weight: bold;
+  font-size: 11px;
+  color: #94a3b8;
+  text-transform: uppercase;
+}
+.bandeau-numeros {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  flex: 1;
+  padding-bottom: 2px;
+  min-height: 28px;
+}
+.numero-badge {
+  display: inline-block;
+  min-width: 28px;
+  height: 28px;
+  line-height: 28px;
+  border-radius: 50%;
+  text-align: center;
+  font-weight: bold;
+  font-size: 13px;
+  color: white;
+}
+.numero-badge.rouge { background: #ef4444; }
+.numero-badge.noir { background: #334155; }
+.numero-badge.vert { background: #10b981; }
+
+/* Zone de boutons d'action du tableau */
+.table-actions {
+  display: flex;
+  gap: 6px;
+}
+.btn-action {
+  flex: 1;
+  padding: 6px 0;
+  border: none;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: bold;
+  cursor: pointer;
+  color: white;
+  transition: opacity 0.1s;
+}
+.btn-action:hover {
+  opacity: 0.9;
+}
+.btn-zero { background: #10b981; }   /* Vert pour le 0 */
+.btn-undo { background: #f59e0b; }   /* Orange pour annuler */
+.btn-raz { background: #ef4444; }    /* Rouge pour RAZ */
+
+/* Carrés (Grilles) */
+.jeu-zone {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  align-items: center;
+}
+.grille-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mini-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 42px);
+  grid-template-rows: repeat(3, 42px);
+  gap: 3px;
+}
+.cell {
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
+  border: 2px solid #ccc;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  user-select: none;
+  background: white;
+  color: #222;
+  transition: background 0.1s;
+}
+.cell.red { background: #e03030; color: white; border-color: #c02020; }
+.cell.green { background: #3dc43d; color: #1a4a1a; border-color: #2a9a2a; }
+</style>
+</head>
+<body>
+
+<h1>Suivi des Carrés</h1>
+
+<!-- Container des 3 tableaux indépendants -->
+<div id="parties-container"></div>
+
+<script>
+const NUMBERS_LEFT =[[31,22,29],[15,4,2],[11,8,10],[28,35,26],[17,6,13],[24,33,20]];
+const NUMBERS_RIGHT=[[14,9,18],[32,19,21],[36,30,23],[7,12,3],[25,34,27],[5,16,1]];
+const NB_PARTIES=3;
+
+const state=[];
+for(let p=0;p<NB_PARTIES;p++) state.push(makePartie());
+
+function makePartie(){
+  return {
+    numero:'',
+    leftCells: initCells(),
+    rightCells: initCells(),
+    history: [] // Historique propre à chaque tableau
+  };
+}
+
+function initCells(){
+  const c={};
+  for(let r=0;r<6;r++) for(let col=0;col<3;col++) c[`${r}-${col}`]='white';
+  return c;
+}
+
+function getRouletteColor(num) {
+  if (num === 0) return 'vert';
+  const noirs = [2, 4, 6, 8, 10, 11, 13, 15, 17, 20, 22, 24, 26, 28, 29, 31, 33, 35];
+  return noirs.includes(num) ? 'noir' : 'rouge';
+}
+
+function renderAll(){
+  const c=document.getElementById('parties-container');
+  c.innerHTML='';
+  for(let p=0;p<NB_PARTIES;p++) c.appendChild(renderPartie(p));
+}
+
+function checkBlock(p,row,col,isRight){
+  const cells=isRight?state[p].rightCells:state[p].leftCells;
+  const br=Math.floor(row/3)*3;
+  
+  // Analyse de la ligne dans le bloc 3x3 de ce tableau
+  let reds=0;
+  for(let c=0;c<3;c++) if(cells[`${row}-${c}`]==='red') reds++;
+  if(reds===2) {
+    for(let c=0;c<3;c++){
+      const k=`${row}-${c}`;
+      if(cells[k]!=='red') cells[k]='green';
+    }
+  }
+  
+  // Analyse de la colonne dans le bloc 3x3 de ce tableau
+  reds=0;
+  for(let r=br;r<br+3;r++) if(cells[`${r}-${col}`]==='red') reds++;
+  if(reds===2) {
+    for(let r=br;r<br+3;r++){
+      const k=`${r}-${col}`;
+      if(cells[k]!=='red') cells[k]='green';
+    }
+  }
+}
+
+// Recherche et active le numéro dans les carrés d'un seul tableau (p)
+function simulateNumberInGrid(p, num) {
+  let found = false;
+  let isRight = false;
+  let row = -1;
+  let col = -1;
+
+  for (let r = 0; r < 6; r++) {
+    for (let c = 0; c < 3; c++) {
+      if (NUMBERS_LEFT[r][c] === num) {
+        found = true;
+        isRight = false;
+        row = r;
+        col = c;
+        break;
+      }
+    }
+    if (found) break;
+  }
+
+  if (!found) {
+    for (let r = 0; r < 6; r++) {
+      for (let c = 0; c < 3; c++) {
+        if (NUMBERS_RIGHT[r][c] === num) {
+          found = true;
+          isRight = true;
+          row = r;
+          col = c;
+          break;
+        }
+      }
+      if (found) break;
+    }
+  }
+
+  if (found) {
+    const cells = isRight ? state[p].rightCells : state[p].leftCells;
+    const k = `${row}-${col}`;
+    if (cells[k] === 'green') return;
+    cells[k] = 'red';
+    checkBlock(p, row, col, isRight);
+  }
+}
+
+function playNumberOnTable(p, num) {
+  num = parseInt(num);
+  if (isNaN(num) || num < 0 || num > 36) return;
+  state[p].history.push(num);
+  simulateNumberInGrid(p, num);
+  renderAll();
+}
+
+function undoLastNumberOnTable(p) {
+  const s = state[p];
+  if (s.history.length === 0) return;
+  s.history.pop();
+  const savedHistory = [...s.history];
+  
+  const oldNum = s.numero;
+  state[p] = makePartie();
+  state[p].numero = oldNum;
+  
+  for (const num of savedHistory) {
+    state[p].history.push(num);
+    simulateNumberInGrid(p, num);
+  }
+  renderAll();
+}
+
+function clearTable(p) {
+  const oldNum = state[p].numero;
+  state[p] = makePartie();
+  state[p].numero = oldNum;
+  renderAll();
+}
+
+function renderPartie(p){
+  const s=state[p];
+  const bloc=document.createElement('div');bloc.className='partie-bloc';
+
+  // 1. Header (Titre du tableau + nom)
+  const hdr=document.createElement('div');hdr.className='partie-header';
+  const leftGrp=document.createElement('div');leftGrp.style.cssText='display:flex;align-items:center;gap:5px;';
+  const lbl=document.createElement('span');lbl.className='partie-label';lbl.textContent=`T${p+1} N°:`;
+  const numInp=document.createElement('input');numInp.className='partie-numero';numInp.type='text';
+  numInp.value=s.numero;numInp.placeholder='Nom N°';
+  numInp.addEventListener('input',e=>{state[p].numero=e.target.value;});
+  leftGrp.appendChild(lbl);leftGrp.appendChild(numInp);
+  hdr.appendChild(leftGrp);
+  bloc.appendChild(hdr);
+
+  // 2. Bandeau historique propre à ce tableau
+  const bContainer = document.createElement('div');
+  bContainer.className = 'bandeau-historique-container';
+  const bLabel = document.createElement('span');
+  bLabel.className = 'hist-label';
+  bLabel.textContent = 'Derniers :';
+  bContainer.appendChild(bLabel);
+  
+  const bNumeros = document.createElement('div');
+  bNumeros.className = 'bandeau-numeros';
+  const reversed = [...s.history].reverse();
+  bNumeros.innerHTML = reversed.map(num => {
+    const color = getRouletteColor(num);
+    return `<span class="numero-badge ${color}">${num}</span>`;
+  }).join('');
+  bContainer.appendChild(bNumeros);
+  bloc.appendChild(bContainer);
+
+  // 3. Actions (Saisir 0, Annuler, RAZ)
+  const actDiv = document.createElement('div');
+  actDiv.className = 'table-actions';
+  
+  const btnZero = document.createElement('button');
+  btnZero.className = 'btn-action btn-zero';
+  btnZero.textContent = 'Saisir 0';
+  btnZero.addEventListener('click', () => playNumberOnTable(p, 0));
+  
+  const btnUndo = document.createElement('button');
+  btnUndo.className = 'btn-action btn-undo';
+  btnUndo.textContent = 'Annuler';
+  btnUndo.addEventListener('click', () => undoLastNumberOnTable(p));
+  
+  const btnRaz = document.createElement('button');
+  btnRaz.className = 'btn-action btn-raz';
+  btnRaz.textContent = 'RAZ';
+  btnRaz.addEventListener('click', () => clearTable(p));
+  
+  actDiv.appendChild(btnZero);
+  actDiv.appendChild(btnUndo);
+  actDiv.appendChild(btnRaz);
+  bloc.appendChild(actDiv);
+
+  // 4. Carrés (Grilles de numéros)
+  const jeuZone=document.createElement('div');jeuZone.className='jeu-zone';
+  function makeGrid(isRight,rowStart){
+    const cells=isRight?s.rightCells:s.leftCells;
+    const nums=isRight?NUMBERS_RIGHT:NUMBERS_LEFT;
+    const wrap=document.createElement('div');wrap.className='mini-grid';
+    for(let r=rowStart;r<rowStart+3;r++){
+      for(let c=0;c<3;c++){
+        const k=`${r}-${c}`;
+        const div=document.createElement('div');
+        div.className='cell '+(cells[k]||'white');
+        div.textContent=nums[r][c];
+        div.addEventListener('click',()=>{
+          const cur=cells[k];
+          if(cur==='green') return;
+          // Le clic sur un carré n'impacte que le tableau en cours (p)
+          playNumberOnTable(p, nums[r][c]);
+        });
+        wrap.appendChild(div);
+      }
+    }
+    return wrap;
+  }
+  const lw=document.createElement('div');lw.className='grille-wrap';
+  lw.appendChild(makeGrid(false,0));lw.appendChild(makeGrid(false,3));
+  const rw=document.createElement('div');rw.className='grille-wrap';
+  rw.appendChild(makeGrid(true,0));rw.appendChild(makeGrid(true,3));
+  jeuZone.appendChild(lw);jeuZone.appendChild(rw);
+
+  bloc.appendChild(jeuZone);
+  return bloc;
+}
+
+renderAll();
+</script>
+</body>
+</html>
